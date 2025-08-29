@@ -158,7 +158,7 @@ if should_optimize:
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Total Cost", f"£{solution['total_price']}m", f"£{100.0 - solution['total_price']}m remaining")
+                st.metric("Total Cost", f"£{solution['total_price']:.1f}m", f"£{100.0 - solution['total_price']:.1f}m remaining")
             
             with col2:
                 st.metric("Projected Points", f"{solution['total_proj_points']}")
