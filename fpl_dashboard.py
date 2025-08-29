@@ -7,7 +7,6 @@ A Streamlit dashboard for the FPL team selector with interactive parameter contr
 
 import streamlit as st
 import pandas as pd
-import sys
 import json
 from pathlib import Path
 
@@ -167,7 +166,7 @@ if should_optimize:
                 st.metric("Projected Points", f"{solution['total_proj_points']}")
             
             with col3:
-                st.metric("Avg Fixture Difficulty", f"{solution['avg_fixture_difficulty']:.2f}", help="Lower is easier fixtures")
+                st.metric("Five GameAvg Fixture Difficulty", f"{solution['avg_fixture_difficulty']:.2f}", help="Lower is easier fixtures")
             
             with col4:
                 if solution.get('fixture_weighting', 0) > 0:
@@ -204,7 +203,7 @@ if should_optimize:
                     'Price': f"£{player['price']:.1f}m",
                     'Points': f"{player['proj_points']:.0f}",
                     'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-                    'Next 3 Fixtures': player['next_3_fixtures']
+                    'Next 5 Fixtures': player['next_5_fixtures']
                 }
                 
                 # Add conditional columns based on weightings
@@ -381,7 +380,7 @@ elif st.session_state.solution is not None:
             'Price': f"£{player['price']:.1f}m",
             'Points': f"{player['proj_points']:.0f}",
             'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-            'Next 3 Fixtures': player['next_3_fixtures']
+            'Next 5 Fixtures': player['next_5_fixtures']
         }
         
         # Add conditional columns based on weightings

@@ -264,8 +264,8 @@ class FPLTeamSelector:
         player_data['team_name'] = player_data['team'].map(
             lambda x: self.teams.get(x, {}).get('short_name', f'Team{x}')
         )
-        player_data['next_3_fixtures'] = player_data['team'].apply(
-            lambda x: self.get_next_fixtures(x, 3)
+        player_data['next_5_fixtures'] = player_data['team'].apply(
+            lambda x: self.get_next_fixtures(x, 5)
         )
         
         # Filter to only regular starters if requested
@@ -413,7 +413,7 @@ class FPLTeamSelector:
             by_position[pos] = pos_players[['name', 'team_name', 'price', 'proj_points', 
                                           'fixture_adjusted_points', 'last_season_adjusted_points',
                                           'current_points_per_gw', 'last_season_points_per_gw',
-                                          'avg_fixture_difficulty_5', 'next_3_fixtures']].to_dict('records')
+                                          'avg_fixture_difficulty_5', 'next_5_fixtures']].to_dict('records')
         
         # Group by team
         by_team_counts = selected_players['team_name'].value_counts().to_dict()
@@ -525,7 +525,7 @@ class FPLTeamSelector:
                     final_points = player['last_season_adjusted_points']
                     adjustments.append(f"hist: {final_points:<4.1f} (curr:{current_rate:.1f}/gw, last:{last_rate:.1f}/gw)")
                 
-                fixture_info = f"Diff: {player['avg_fixture_difficulty_5']:<3.1f} | Next: {player['next_3_fixtures']}"
+                fixture_info = f"Diff: {player['avg_fixture_difficulty_5']:<3.1f} | Next: {player['next_5_fixtures']}"
                 
                 if adjustments:
                     adj_str = " (" + ", ".join(adjustments) + ")"
