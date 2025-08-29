@@ -207,13 +207,13 @@ if should_optimize:
                 }
                 
                 # Add conditional columns based on weightings
-                if solution.get('fixture_weighting', 0) > 0:
-                    row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+                # if solution.get('fixture_weighting', 0) > 0:
+                #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
                 
                 if solution.get('last_season_weighting', 0) > 0:
                     row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
                     row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-                    row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+                    # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
                 
                 display_data.append(row)
             
@@ -384,13 +384,13 @@ elif st.session_state.solution is not None:
         }
         
         # Add conditional columns based on weightings
-        if solution.get('fixture_weighting', 0) > 0:
-            row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+        # if solution.get('fixture_weighting', 0) > 0:
+        #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
         
         if solution.get('last_season_weighting', 0) > 0:
             row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
             row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-            row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+            # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
         
         display_data.append(row)
     
