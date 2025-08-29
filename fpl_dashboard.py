@@ -202,8 +202,7 @@ if should_optimize:
                     'Team': player['team_name'],
                     'Price': f"£{player['price']:.1f}m",
                     'Points': f"{player['proj_points']:.0f}",
-                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-                    'Next 5 Fixtures': player['next_5_fixtures']
+                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
                 }
                 
                 # Add conditional columns based on weightings
@@ -214,6 +213,9 @@ if should_optimize:
                     row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
                     row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
                     # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+                
+                # Add fixtures as the last column
+                row['Next 5 Fixtures'] = player['next_5_fixtures']
                 
                 display_data.append(row)
             
@@ -379,8 +381,7 @@ elif st.session_state.solution is not None:
             'Team': player['team_name'],
             'Price': f"£{player['price']:.1f}m",
             'Points': f"{player['proj_points']:.0f}",
-            'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-            'Next 5 Fixtures': player['next_5_fixtures']
+            'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
         }
         
         # Add conditional columns based on weightings
@@ -391,6 +392,9 @@ elif st.session_state.solution is not None:
             row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
             row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
             # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+        
+        # Add fixtures as the last column
+        row['Next 5 Fixtures'] = player['next_5_fixtures']
         
         display_data.append(row)
     
