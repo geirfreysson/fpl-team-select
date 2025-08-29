@@ -42,6 +42,9 @@ def load_player_pics(data_dir):
 st.title("⚽ FPL Team Selector Dashboard")
 st.markdown("Optimize your Fantasy Premier League team using Integer Linear Programming")
 
+st.markdown("Vibe coded by [Geir Freysson](https://geirfreysson.com)")
+st.markdown("For more data driven FPL madness check out the [FPL AI Agent](https://fpl.withrobots.ai)")
+
 # Sidebar controls
 st.sidebar.header("Optimization Parameters")
 
