@@ -93,6 +93,32 @@ exclude_injury_risk = st.sidebar.checkbox(
     help="If checked, exclude players who are doubtful, injured, or have <75% chance of playing"
 )
 
+# Bench budget optimization controls
+st.sidebar.subheader("Bench Budget Optimization")
+
+optimize_starting_xi = st.sidebar.checkbox(
+    "Optimize Starting XI Only",
+    value=True,
+    help="If checked, optimize starting XI points only and ignore bench player points"
+)
+
+bench_budget_enabled = st.sidebar.checkbox(
+    "Set Bench Budget Limit",
+    value=False,
+    help="If checked, set a maximum budget for bench players"
+)
+
+bench_budget = None
+if bench_budget_enabled:
+    bench_budget = st.sidebar.slider(
+        "Bench Budget (£m)",
+        min_value=15.0,
+        max_value=30.0,
+        value=20.0,
+        step=0.5,
+        help="Maximum budget for bench players in millions"
+    )
+
 # Data directory (hardcoded)
 data_dir = "fpl_data"
 
@@ -119,7 +145,8 @@ if not SELECTOR_AVAILABLE:
 # Create a key from current parameters to detect changes
 current_params = (
     objective, fixture_weighting, last_season_weighting,
-    require_all_starts, max_per_team_per_position, exclude_injury_risk, data_dir
+    require_all_starts, max_per_team_per_position, exclude_injury_risk, data_dir,
+    optimize_starting_xi, bench_budget
 )
 
 # Initialize session state for parameters
@@ -146,7 +173,9 @@ if should_optimize:
                 max_per_team_per_position=max_per_team_per_position,
                 exclude_injury_risk=exclude_injury_risk,
                 fixture_weighting=fixture_weighting,
-                last_season_weighting=last_season_weighting
+                last_season_weighting=last_season_weighting,
+                bench_budget=bench_budget,
+                optimize_starting_xi=optimize_starting_xi
             )
         
         if solution:
@@ -174,6 +203,27 @@ if should_optimize:
                 else:
                     st.metric("Solver Status", solution['solver_status'])
             
+            # Show starting XI and bench breakdown if applicable
+            if solution.get('starting_xi_stats'):
+                st.subheader("🏃 Starting XI vs Bench Breakdown")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.info(f"**Starting XI ({solution['starting_xi_stats']['formation']})**")
+                    st.metric("Starting XI Cost", f"£{solution['starting_xi_stats']['total_price']:.1f}m")
+                    st.metric("Starting XI Points", f"{solution['starting_xi_stats']['total_proj_points']}")
+                
+                with col2:
+                    st.info(f"**Bench ({solution['bench_stats']['count']} players)**")
+                    bench_cost = solution['bench_stats']['total_price']
+                    bench_budget_limit = solution.get('bench_budget')
+                    if bench_budget_limit:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m", f"£{bench_budget_limit - bench_cost:.1f}m under budget")
+                    else:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m")
+                    st.metric("Bench Points", f"{solution['bench_stats']['total_proj_points']}")
+            
             # Display team table
             st.subheader("🎯 Optimal Team")
             
@@ -193,6 +243,12 @@ if should_optimize:
                 # Get player picture URL
                 pic_url = player_pics.get(str(player['id']), "")
                 
+                # Check if player is in starting XI
+                role = ""
+                if solution.get('starting_xi_players'):
+                    starting_xi_ids = [p['id'] for p in solution['starting_xi_players']]
+                    role = "Starting XI" if player['id'] in starting_xi_ids else "Bench"
+                
                 row = {
                     'Photo': pic_url,
                     'Name': player['name'],
@@ -203,6 +259,10 @@ if should_optimize:
                     'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
                     'Next 3 Fixtures': player['next_3_fixtures']
                 }
+                
+                # Add role column if starting XI mode is enabled
+                if role:
+                    row['Role'] = role
                 
                 # Add conditional columns based on weightings
                 if solution.get('fixture_weighting', 0) > 0:
@@ -227,6 +287,13 @@ if should_optimize:
                 }
                 return color_map.get(val, '')
             
+            def style_role(val):
+                role_map = {
+                    'Starting XI': 'background-color: #4caf50; color: white; font-weight: bold',
+                    'Bench': 'background-color: #ff9800; color: white; font-weight: bold'
+                }
+                return role_map.get(val, '')
+            
             # Configure column types, especially the Photo column as ImageColumn
             column_config = {
                 "Photo": st.column_config.ImageColumn(
@@ -238,6 +305,11 @@ if should_optimize:
             
             # Style the dataframe and show with image column
             styled_df = df_display.style.applymap(style_position, subset=['Position'])
+            
+            # Apply role styling if Role column exists
+            if 'Role' in df_display.columns:
+                styled_df = styled_df.applymap(style_role, subset=['Role'])
+            
             st.dataframe(
                 df_display, 
                 use_container_width=True, 
@@ -296,6 +368,21 @@ if should_optimize:
             with val_col5:
                 status = "✅" if validation['club_limits'] else "❌"
                 st.metric("Club Limits (≤3)", status)
+            
+            # Additional validations if applicable
+            if solution.get('starting_xi_stats') or solution.get('bench_budget') is not None:
+                val_col6, val_col7 = st.columns([1, 1])
+                
+                if solution.get('starting_xi_stats'):
+                    with val_col6:
+                        status = "✅" if validation.get('starting_xi_valid', True) else "❌"
+                        formation = solution.get('starting_xi_stats', {}).get('formation', 'N/A')
+                        st.metric(f"Starting XI ({formation})", status)
+                
+                if solution.get('bench_budget') is not None:
+                    with val_col7:
+                        status = "✅" if validation.get('bench_budget_valid', True) else "❌"
+                        st.metric("Bench Budget", status)
             
             # Export functionality
             st.subheader("📋 Export")
@@ -469,21 +556,31 @@ else:
         - Fixture Weighting: 0.0
         - Last Season Weighting: 0.0
         - All constraints enabled
+        - Optimize Starting XI: ON
         
         **Balanced Approach:**
         - Fixture Weighting: 0.3
         - Last Season Weighting: 0.4
         - Regular starters only
+        - Optimize Starting XI: ON
         
         **Historical Focus:**
         - Fixture Weighting: 0.1
         - Last Season Weighting: 0.7
         - Allow rotation players
+        - Optimize Starting XI: ON
         
         **Fixture-Heavy:**
         - Fixture Weighting: 0.8
         - Last Season Weighting: 0.2
         - Exclude injury risks
+        - Optimize Starting XI: ON
+        
+        **Budget-Conscious (Cheap Bench):**
+        - Fixture Weighting: 0.2
+        - Last Season Weighting: 0.3
+        - Optimize Starting XI: ON
+        - Bench Budget: £18.0m
         """)
 
 # Footer
