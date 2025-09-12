@@ -205,27 +205,6 @@ if should_optimize:
                 else:
                     st.metric("Solver Status", solution['solver_status'])
             
-            # Show starting XI and bench breakdown if applicable
-            if solution.get('starting_xi_stats'):
-                st.subheader("🏃 Starting XI vs Bench Breakdown")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.info(f"**Starting XI ({solution['starting_xi_stats']['formation']})**")
-                    st.metric("Starting XI Cost", f"£{solution['starting_xi_stats']['total_price']:.1f}m")
-                    st.metric("Starting XI Points", f"{solution['starting_xi_stats']['total_proj_points']}")
-                
-                with col2:
-                    st.info(f"**Bench ({solution['bench_stats']['count']} players)**")
-                    bench_cost = solution['bench_stats']['total_price']
-                    bench_budget_limit = solution.get('bench_budget')
-                    if bench_budget_limit:
-                        st.metric("Bench Cost", f"£{bench_cost:.1f}m", f"£{bench_budget_limit - bench_cost:.1f}m under budget")
-                    else:
-                        st.metric("Bench Cost", f"£{bench_cost:.1f}m")
-                    st.metric("Bench Points", f"{solution['bench_stats']['total_proj_points']}")
-            
             # Display team table
             st.subheader("🎯 Optimal Team")
             
@@ -346,6 +325,27 @@ if should_optimize:
                 
                 st.subheader("Position Summary")
                 st.dataframe(pos_summary, use_container_width=True)
+            
+            # Show starting XI and bench breakdown if applicable
+            if solution.get('starting_xi_stats'):
+                st.subheader("🏃 Starting XI vs Bench Breakdown")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.info(f"**Starting XI ({solution['starting_xi_stats']['formation']})**")
+                    st.metric("Starting XI Cost", f"£{solution['starting_xi_stats']['total_price']:.1f}m")
+                    st.metric("Starting XI Points", f"{solution['starting_xi_stats']['total_proj_points']}")
+                
+                with col2:
+                    st.info(f"**Bench ({solution['bench_stats']['count']} players)**")
+                    bench_cost = solution['bench_stats']['total_price']
+                    bench_budget_limit = solution.get('bench_budget')
+                    if bench_budget_limit:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m", f"£{bench_budget_limit - bench_cost:.1f}m under budget")
+                    else:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m")
+                    st.metric("Bench Points", f"{solution['bench_stats']['total_proj_points']}")
             
             # Validation results
             validation = selector.validate_solution(solution)
