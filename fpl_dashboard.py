@@ -213,52 +213,80 @@ if should_optimize:
             
             # Prepare display data ordered by position
             position_order = ['GKP', 'DEF', 'MID', 'FWD']
-            display_data = []
             
-            # Sort players by position order first
-            selected_players_df = pd.DataFrame(solution['selected_players'])
-            selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
-            selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
-            
-            for _, player in selected_players_df.iterrows():
-                # Get player picture URL
-                pic_url = player_pics.get(str(player['id']), "")
+            # Check if we should display separate tables for Starting XI and Bench
+            if solution.get('starting_xi_players'):
+                # Create separate datasets for Starting XI and Bench
+                starting_xi_ids = [p['id'] for p in solution['starting_xi_players']]
                 
-                # Check if player is in starting XI
-                role = ""
-                if solution.get('starting_xi_players'):
-                    starting_xi_ids = [p['id'] for p in solution['starting_xi_players']]
-                    role = "Starting XI" if player['id'] in starting_xi_ids else "Bench"
+                # Starting XI players
+                starting_xi_data = []
+                bench_data = []
                 
-                row = {
-                    'Photo': pic_url,
-                    'Name': player['name'],
-                    'Position': player['position'],
-                    'Team': player['team_name'],
-                    'Price': f"£{player['price']:.1f}m",
-                    'Points': f"{player['proj_points']:.0f}",
-                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
-                }
+                # Sort players by position order first
+                selected_players_df = pd.DataFrame(solution['selected_players'])
+                selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
+                selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
                 
-                # Add role column if starting XI mode is enabled
-                if role:
-                    row['Role'] = role
+                for _, player in selected_players_df.iterrows():
+                    # Get player picture URL
+                    pic_url = player_pics.get(str(player['id']), "")
+                    
+                    row = {
+                        'Photo': pic_url,
+                        'Name': player['name'],
+                        'Position': player['position'],
+                        'Team': player['team_name'],
+                        'Price': f"£{player['price']:.1f}m",
+                        'Points': f"{player['proj_points']:.0f}",
+                        'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
+                    }
+                    
+                    # Add conditional columns based on weightings
+                    if solution.get('last_season_weighting', 0) > 0:
+                        row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
+                        row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
+                    
+                    # Add fixtures as the last column
+                    row['Next 5 Fixtures'] = player['next_5_fixtures']
+                    
+                    # Separate into Starting XI vs Bench
+                    if player['id'] in starting_xi_ids:
+                        starting_xi_data.append(row)
+                    else:
+                        bench_data.append(row)
                 
-                # Add conditional columns based on weightings
-                # if solution.get('fixture_weighting', 0) > 0:
-                #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+                df_starting_xi = pd.DataFrame(starting_xi_data)
+                df_bench = pd.DataFrame(bench_data)
                 
-                if solution.get('last_season_weighting', 0) > 0:
-                    row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
-                    row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-                    # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+            else:
+                # Single table for all players (legacy behavior)
+                display_data = []
+                selected_players_df = pd.DataFrame(solution['selected_players'])
+                selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
+                selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
                 
-                # Add fixtures as the last column
-                row['Next 5 Fixtures'] = player['next_5_fixtures']
+                for _, player in selected_players_df.iterrows():
+                    pic_url = player_pics.get(str(player['id']), "")
+                    
+                    row = {
+                        'Photo': pic_url,
+                        'Name': player['name'],
+                        'Position': player['position'],
+                        'Team': player['team_name'],
+                        'Price': f"£{player['price']:.1f}m",
+                        'Points': f"{player['proj_points']:.0f}",
+                        'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
+                    }
+                    
+                    if solution.get('last_season_weighting', 0) > 0:
+                        row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
+                        row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
+                    
+                    row['Next 5 Fixtures'] = player['next_5_fixtures']
+                    display_data.append(row)
                 
-                display_data.append(row)
-            
-            df_display = pd.DataFrame(display_data)
+                df_display = pd.DataFrame(display_data)
             
             # Style the dataframe
             def style_position(val):
@@ -286,20 +314,41 @@ if should_optimize:
                 )
             }
             
-            # Style the dataframe and show with image column
-            styled_df = df_display.style.applymap(style_position, subset=['Position'])
-            
-            # Apply role styling if Role column exists
-            if 'Role' in df_display.columns:
-                styled_df = styled_df.applymap(style_role, subset=['Role'])
-            
-            st.dataframe(
-                df_display, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config=column_config,
-                height=len(df_display) * 35 + 40
-            )
+            # Display dataframes
+            if solution.get('starting_xi_players'):
+                # Display Starting XI table
+                st.subheader("🟢 Starting XI")
+                if len(df_starting_xi) > 0:
+                    styled_starting_xi = df_starting_xi.style.applymap(style_position, subset=['Position'])
+                    st.dataframe(
+                        df_starting_xi,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=column_config,
+                        height=len(df_starting_xi) * 35 + 40
+                    )
+                
+                # Display Bench table
+                st.subheader("🟠 Bench")
+                if len(df_bench) > 0:
+                    styled_bench = df_bench.style.applymap(style_position, subset=['Position'])
+                    st.dataframe(
+                        df_bench,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=column_config,
+                        height=len(df_bench) * 35 + 40
+                    )
+            else:
+                # Single table display (legacy behavior)
+                styled_df = df_display.style.applymap(style_position, subset=['Position'])
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config=column_config,
+                    height=len(df_display) * 35 + 40
+                )
             
             # Team composition tables
             col1, col2 = st.columns(2)
