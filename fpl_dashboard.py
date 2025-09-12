@@ -7,7 +7,6 @@ A Streamlit dashboard for the FPL team selector with interactive parameter contr
 
 import streamlit as st
 import pandas as pd
-import sys
 import json
 from pathlib import Path
 
@@ -40,7 +39,10 @@ def load_player_pics(data_dir):
         return {}
 
 st.title("⚽ FPL Team Selector Dashboard")
-st.markdown("Optimize your Fantasy Premier League team using Integer Linear Programming")
+st.markdown("Optimize your Fantasy Premier League team using Integer Linear Programming. ")
+st.markdown("***Beware***: Past performance is no guarantee of future results! And this dashboard uses past performance.")
+st.markdown("Vibe coded by [Geir Freysson](https://geirfreysson.com).")
+st.markdown("For more data driven FPL madness check out the [FPL AI Agent](https://fpl.withrobots.ai)")
 
 # Sidebar controls
 st.sidebar.header("Optimization Parameters")
@@ -193,7 +195,7 @@ if should_optimize:
                 st.metric("Projected Points", f"{solution['total_proj_points']}")
             
             with col3:
-                st.metric("Avg Fixture Difficulty", f"{solution['avg_fixture_difficulty']:.2f}", help="Lower is easier fixtures")
+                st.metric("Five GameAvg Fixture Difficulty", f"{solution['avg_fixture_difficulty']:.2f}", help="Lower is easier fixtures")
             
             with col4:
                 if solution.get('fixture_weighting', 0) > 0:
@@ -256,8 +258,7 @@ if should_optimize:
                     'Team': player['team_name'],
                     'Price': f"£{player['price']:.1f}m",
                     'Points': f"{player['proj_points']:.0f}",
-                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-                    'Next 3 Fixtures': player['next_3_fixtures']
+                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
                 }
                 
                 # Add role column if starting XI mode is enabled
@@ -265,13 +266,16 @@ if should_optimize:
                     row['Role'] = role
                 
                 # Add conditional columns based on weightings
-                if solution.get('fixture_weighting', 0) > 0:
-                    row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+                # if solution.get('fixture_weighting', 0) > 0:
+                #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
                 
                 if solution.get('last_season_weighting', 0) > 0:
                     row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
                     row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-                    row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+                    # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+                
+                # Add fixtures as the last column
+                row['Next 5 Fixtures'] = player['next_5_fixtures']
                 
                 display_data.append(row)
             
@@ -464,18 +468,20 @@ elif st.session_state.solution is not None:
             'Team': player['team_name'],
             'Price': f"£{player['price']:.1f}m",
             'Points': f"{player['proj_points']:.0f}",
-            'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}",
-            'Next 3 Fixtures': player['next_3_fixtures']
+            'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
         }
         
         # Add conditional columns based on weightings
-        if solution.get('fixture_weighting', 0) > 0:
-            row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+        # if solution.get('fixture_weighting', 0) > 0:
+        #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
         
         if solution.get('last_season_weighting', 0) > 0:
             row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
             row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-            row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+            # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+        
+        # Add fixtures as the last column
+        row['Next 5 Fixtures'] = player['next_5_fixtures']
         
         display_data.append(row)
     
