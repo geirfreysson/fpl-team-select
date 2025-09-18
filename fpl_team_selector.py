@@ -40,6 +40,12 @@ USAGE:
     # Run with all constraints disabled (original algorithm)
     uv run python fpl_team_selector.py --allow-rotation --no-max-one-per-team-position --allow-injury-risk
     
+    # Optimize starting XI only with £20M bench budget limit
+    uv run python fpl_team_selector.py --bench-budget 20.0 --optimize-starting-xi
+    
+    # Combined approach: fixtures + history + bench budget control
+    uv run python fpl_team_selector.py --fixture-weighting 0.3 --last-season-weighting 0.4 --bench-budget 18.5 --optimize-starting-xi
+    
     # Run test with dummy data to verify algorithm
     uv run python fpl_team_selector.py --test
     
@@ -297,7 +303,8 @@ class FPLTeamSelector:
     
     def solve_team_selection(self, objective: str = 'max_points', require_all_starts: bool = True, 
                            max_per_team_per_position: bool = True, exclude_injury_risk: bool = True,
-                           fixture_weighting: float = 0.0, last_season_weighting: float = 0.0) -> Dict:
+                           fixture_weighting: float = 0.0, last_season_weighting: float = 0.0,
+                           bench_budget: Optional[float] = None, optimize_starting_xi: bool = False) -> Dict:
         """
         Solve the FPL team selection problem using Integer Linear Programming.
         
@@ -308,6 +315,8 @@ class FPLTeamSelector:
             exclude_injury_risk: If True, exclude players with injury concerns
             fixture_weighting: Weight for fixture difficulty (0.0-1.0, higher = more fixture influence)
             last_season_weighting: Weight for last season performance (0.0-1.0, higher = more historical influence)
+            bench_budget: Maximum budget for bench players (None = no limit)
+            optimize_starting_xi: If True, optimize starting XI points only, ignore bench
         
         Returns:
             Dictionary with solution details
@@ -324,6 +333,13 @@ class FPLTeamSelector:
         x = {}
         for i in players_df.index:
             x[i] = solver.IntVar(0, 1, f'x_{i}')
+        
+        # Additional decision variables for starting XI (if bench budget control enabled)
+        s = {}
+        if bench_budget is not None or optimize_starting_xi:
+            print("Adding starting XI decision variables...")
+            for i in players_df.index:
+                s[i] = solver.IntVar(0, 1, f's_{i}')
         
         # Constraint 1: Squad size = 15
         solver.Add(sum(x[i] for i in players_df.index) == 15)
@@ -361,29 +377,77 @@ class FPLTeamSelector:
                         constraint_count += 1
             print(f"Added {constraint_count} team-position constraints")
         
+        # Starting XI constraints (if bench budget control or optimization enabled)
+        if bench_budget is not None or optimize_starting_xi:
+            print("Adding starting XI formation constraints...")
+            
+            # Get position player indices
+            gk_players = players_df[players_df['position'] == 'GKP'].index
+            def_players = players_df[players_df['position'] == 'DEF'].index
+            mid_players = players_df[players_df['position'] == 'MID'].index
+            fwd_players = players_df[players_df['position'] == 'FWD'].index
+            
+            # Starting XI formation constraints (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD)
+            solver.Add(sum(s[i] for i in gk_players) == 1)  # Exactly 1 GK
+            solver.Add(sum(s[i] for i in def_players) >= 3)  # At least 3 DEF
+            solver.Add(sum(s[i] for i in def_players) <= 5)  # At most 5 DEF
+            solver.Add(sum(s[i] for i in mid_players) >= 2)  # At least 2 MID
+            solver.Add(sum(s[i] for i in mid_players) <= 5)  # At most 5 MID
+            solver.Add(sum(s[i] for i in fwd_players) >= 1)  # At least 1 FWD
+            solver.Add(sum(s[i] for i in fwd_players) <= 3)  # At most 3 FWD
+            
+            # Exactly 11 starters
+            solver.Add(sum(s[i] for i in players_df.index) == 11)
+            
+            # Logical constraint: Can't start if not in squad
+            for i in players_df.index:
+                solver.Add(s[i] <= x[i])
+            
+            # Bench budget constraint (if specified)
+            if bench_budget is not None:
+                print(f"Adding bench budget constraint: £{bench_budget}m")
+                bench_cost = sum(players_df.loc[i, 'price'] * (x[i] - s[i]) for i in players_df.index)
+                solver.Add(bench_cost <= bench_budget)
+        
         # Set objective
         if objective == 'max_points':
-            # Maximize last season adjusted points (includes fixture adjustment if enabled)
-            solver.Maximize(
-                sum(players_df.loc[i, 'last_season_adjusted_points'] * x[i] for i in players_df.index)
-            )
+            if optimize_starting_xi and s:
+                print("Optimizing starting XI points only...")
+                # Maximize last season adjusted points for starting XI only
+                solver.Maximize(
+                    sum(players_df.loc[i, 'last_season_adjusted_points'] * s[i] for i in players_df.index)
+                )
+            else:
+                # Maximize last season adjusted points (includes fixture adjustment if enabled)
+                solver.Maximize(
+                    sum(players_df.loc[i, 'last_season_adjusted_points'] * x[i] for i in players_df.index)
+                )
         elif objective == 'max_spend':
-            # Maximize spend with last season adjusted points as tiebreaker
-            epsilon = 1e-6
-            solver.Maximize(
-                sum((players_df.loc[i, 'price'] + epsilon * players_df.loc[i, 'last_season_adjusted_points']) * x[i] 
-                    for i in players_df.index)
-            )
+            if optimize_starting_xi and s:
+                print("Maximizing starting XI spend...")
+                # Maximize starting XI spend with points as tiebreaker
+                epsilon = 1e-6
+                solver.Maximize(
+                    sum((players_df.loc[i, 'price'] + epsilon * players_df.loc[i, 'last_season_adjusted_points']) * s[i] 
+                        for i in players_df.index)
+                )
+            else:
+                # Maximize spend with last season adjusted points as tiebreaker
+                epsilon = 1e-6
+                solver.Maximize(
+                    sum((players_df.loc[i, 'price'] + epsilon * players_df.loc[i, 'last_season_adjusted_points']) * x[i] 
+                        for i in players_df.index)
+                )
         
         # Solve
         print(f"Solving FPL team selection with objective: {objective}")
         status = solver.Solve()
         
         if status == pywraplp.Solver.OPTIMAL:
-            return self._extract_solution(solver, x, players_df, objective, status, fixture_weighting, last_season_weighting)
+            return self._extract_solution(solver, x, players_df, objective, status, fixture_weighting, last_season_weighting, s, bench_budget, optimize_starting_xi)
         elif status == pywraplp.Solver.FEASIBLE:
             print("Warning: Found feasible but not optimal solution")
-            return self._extract_solution(solver, x, players_df, objective, status, fixture_weighting, last_season_weighting)
+            return self._extract_solution(solver, x, players_df, objective, status, fixture_weighting, last_season_weighting, s, bench_budget, optimize_starting_xi)
         else:
             print("Error: No feasible solution found!")
             print("This might indicate:")
@@ -392,10 +456,30 @@ class FPLTeamSelector:
             print("- Club constraints are too tight")
             return None
     
-    def _extract_solution(self, solver, x, players_df, objective, status, fixture_weighting, last_season_weighting) -> Dict:
+    def _extract_solution(self, solver, x, players_df, objective, status, fixture_weighting, last_season_weighting, s=None, bench_budget=None, optimize_starting_xi=False) -> Dict:
         """Extract and format the solution."""
         selected_indices = [i for i in players_df.index if x[i].solution_value() > 0.5]
         selected_players = players_df.loc[selected_indices].copy()
+        
+        # Extract starting XI and bench if variables exist
+        starting_xi_indices = []
+        bench_indices = []
+        starting_xi_players = pd.DataFrame()
+        bench_players = pd.DataFrame()
+        formation = ""
+        
+        if s:
+            starting_xi_indices = [i for i in players_df.index if s[i].solution_value() > 0.5]
+            bench_indices = [i for i in selected_indices if i not in starting_xi_indices]
+            starting_xi_players = players_df.loc[starting_xi_indices].copy()
+            bench_players = players_df.loc[bench_indices].copy()
+            
+            # Calculate formation (e.g., "3-5-2")
+            starting_positions = starting_xi_players['position'].value_counts()
+            def_count = starting_positions.get('DEF', 0)
+            mid_count = starting_positions.get('MID', 0) 
+            fwd_count = starting_positions.get('FWD', 0)
+            formation = f"{def_count}-{mid_count}-{fwd_count}"
         
         # Calculate totals
         total_price = selected_players['price'].sum()
@@ -410,13 +494,37 @@ class FPLTeamSelector:
         by_position = {}
         for pos in ['GKP', 'DEF', 'MID', 'FWD']:
             pos_players = selected_players[selected_players['position'] == pos]
-            by_position[pos] = pos_players[['name', 'team_name', 'price', 'proj_points', 
+            by_position[pos] = pos_players[['id', 'name', 'team_name', 'price', 'proj_points', 
                                           'fixture_adjusted_points', 'last_season_adjusted_points',
                                           'current_points_per_gw', 'last_season_points_per_gw',
                                           'avg_fixture_difficulty_5', 'next_5_fixtures']].to_dict('records')
         
         # Group by team
         by_team_counts = selected_players['team_name'].value_counts().to_dict()
+        
+        # Calculate starting XI and bench totals if applicable
+        starting_xi_stats = {}
+        bench_stats = {}
+        
+        if s:
+            # Starting XI stats
+            starting_xi_stats = {
+                'total_price': round(starting_xi_players['price'].sum(), 1) if len(starting_xi_players) > 0 else 0.0,
+                'total_proj_points': round(starting_xi_players['proj_points'].sum(), 1) if len(starting_xi_players) > 0 else 0.0,
+                'total_fixture_adjusted_points': round(starting_xi_players['fixture_adjusted_points'].sum(), 1) if len(starting_xi_players) > 0 else 0.0,
+                'total_last_season_adjusted_points': round(starting_xi_players['last_season_adjusted_points'].sum(), 1) if len(starting_xi_players) > 0 else 0.0,
+                'count': len(starting_xi_players),
+                'formation': formation
+            }
+            
+            # Bench stats
+            bench_stats = {
+                'total_price': round(bench_players['price'].sum(), 1) if len(bench_players) > 0 else 0.0,
+                'total_proj_points': round(bench_players['proj_points'].sum(), 1) if len(bench_players) > 0 else 0.0,
+                'total_fixture_adjusted_points': round(bench_players['fixture_adjusted_points'].sum(), 1) if len(bench_players) > 0 else 0.0,
+                'total_last_season_adjusted_points': round(bench_players['last_season_adjusted_points'].sum(), 1) if len(bench_players) > 0 else 0.0,
+                'count': len(bench_players)
+            }
         
         solution = {
             'selected_ids': selected_players['id'].tolist(),
@@ -433,6 +541,12 @@ class FPLTeamSelector:
             'objective': objective,
             'fixture_weighting': fixture_weighting,
             'last_season_weighting': last_season_weighting,
+            'bench_budget': bench_budget,
+            'optimize_starting_xi': optimize_starting_xi,
+            'starting_xi_stats': starting_xi_stats,
+            'bench_stats': bench_stats,
+            'starting_xi_players': starting_xi_players.to_dict('records') if len(starting_xi_players) > 0 else [],
+            'bench_players': bench_players.to_dict('records') if len(bench_players) > 0 else [],
             'solver_status': 'OPTIMAL' if status == pywraplp.Solver.OPTIMAL else 'FEASIBLE'
         }
         
@@ -470,12 +584,34 @@ class FPLTeamSelector:
         team_counts = selected_df['team_name'].value_counts().to_dict()
         validations['club_limits'] = all(count <= 3 for count in team_counts.values())
         
+        # Check starting XI formation if applicable
+        validations['starting_xi_valid'] = True
+        if solution.get('starting_xi_players'):
+            starting_xi_df = pd.DataFrame(solution['starting_xi_players'])
+            if len(starting_xi_df) > 0:
+                starting_xi_positions = starting_xi_df['position'].value_counts().to_dict()
+                validations['starting_xi_valid'] = (
+                    len(starting_xi_df) == 11 and
+                    starting_xi_positions.get('GKP', 0) == 1 and
+                    starting_xi_positions.get('DEF', 0) >= 3 and starting_xi_positions.get('DEF', 0) <= 5 and
+                    starting_xi_positions.get('MID', 0) >= 2 and starting_xi_positions.get('MID', 0) <= 5 and
+                    starting_xi_positions.get('FWD', 0) >= 1 and starting_xi_positions.get('FWD', 0) <= 3
+                )
+            
+        # Check bench budget if applicable  
+        validations['bench_budget_valid'] = True
+        if solution.get('bench_budget') is not None:
+            bench_cost = solution.get('bench_stats', {}).get('total_price', 0.0)
+            validations['bench_budget_valid'] = bench_cost <= solution['bench_budget']
+        
         # Overall validity
         validations['valid'] = all([
             validations['squad_size'],
             validations['budget'],
             validations['positions'],
-            validations['club_limits']
+            validations['club_limits'],
+            validations['starting_xi_valid'],
+            validations['bench_budget_valid']
         ])
         
         return validations
@@ -503,7 +639,36 @@ class FPLTeamSelector:
             print(f"Average Points/GW - Current: {solution['avg_current_points_per_gw']}, Last Season: {solution['avg_last_season_points_per_gw']}")
             print(f"Last Season Weighting: {solution['last_season_weighting']}")
             
+        # Show bench budget info if enabled
+        if solution.get('bench_budget') is not None:
+            bench_cost = solution['bench_stats'].get('total_price', 0.0)
+            print(f"Bench Budget: £{bench_cost}m / £{solution['bench_budget']}m")
+            
+        if solution.get('optimize_starting_xi'):
+            print("Optimization Mode: Starting XI points only")
+            
         print(f"Solver Status: {solution['solver_status']}")
+        
+        # Show starting XI and bench breakdown if available
+        if solution.get('starting_xi_stats'):
+            starting_xi_stats = solution['starting_xi_stats']
+            bench_stats = solution['bench_stats']
+            
+            print(f"\nSTARTING XI ({starting_xi_stats['formation']}):")
+            print(f"  Cost: £{starting_xi_stats['total_price']}m")
+            print(f"  Projected Points: {starting_xi_stats['total_proj_points']}")
+            if solution.get('fixture_weighting', 0.0) > 0:
+                print(f"  Fixture-Adjusted Points: {starting_xi_stats['total_fixture_adjusted_points']}")
+            if solution.get('last_season_weighting', 0.0) > 0:
+                print(f"  Last Season Adjusted Points: {starting_xi_stats['total_last_season_adjusted_points']}")
+            
+            print(f"\nBENCH ({bench_stats['count']} players):")
+            print(f"  Cost: £{bench_stats['total_price']}m")
+            print(f"  Projected Points: {bench_stats['total_proj_points']}")
+            if solution.get('fixture_weighting', 0.0) > 0:
+                print(f"  Fixture-Adjusted Points: {bench_stats['total_fixture_adjusted_points']}")
+            if solution.get('last_season_weighting', 0.0) > 0:
+                print(f"  Last Season Adjusted Points: {bench_stats['total_last_season_adjusted_points']}")
         
         print("\nTEAM COMPOSITION:")
         print("-" * 60)
@@ -512,8 +677,17 @@ class FPLTeamSelector:
             players = solution['by_position'][pos]
             print(f"\n{pos} ({len(players)}):")
             for player in players:
+                # Check if player is in starting XI
+                starter_indicator = ""
+                if solution.get('starting_xi_players'):
+                    starting_xi_ids = [p['id'] for p in solution['starting_xi_players']]
+                    if player['id'] in starting_xi_ids:
+                        starter_indicator = " [XI]"
+                    else:
+                        starter_indicator = " [B] "
+                
                 # Build the display string dynamically based on enabled features
-                base_info = f"  {player['name']:<20} {player['team_name']:<4} £{player['price']:<4}m {player['proj_points']:<4} pts"
+                base_info = f"  {player['name']:<20}{starter_indicator:<5} {player['team_name']:<4} £{player['price']:<4}m {player['proj_points']:<4} pts"
                 
                 adjustments = []
                 if solution.get('fixture_weighting', 0.0) > 0:
@@ -547,6 +721,14 @@ class FPLTeamSelector:
         print(f"Budget (≤£100m): {'✓' if validation['budget'] else '✗'}")
         print(f"Positions (2-5-5-3): {'✓' if validation['positions'] else '✗'}")
         print(f"Club Limits (≤3): {'✓' if validation['club_limits'] else '✗'}")
+        
+        # Show additional validations if applicable
+        if solution.get('starting_xi_players'):
+            formation = solution.get('starting_xi_stats', {}).get('formation', 'N/A')
+            print(f"Starting XI ({formation}): {'✓' if validation['starting_xi_valid'] else '✗'}")
+            
+        if solution.get('bench_budget') is not None:
+            print(f"Bench Budget: {'✓' if validation['bench_budget_valid'] else '✗'}")
 
 
 def run_test():
@@ -624,6 +806,10 @@ def main():
                        help='Weight for fixture difficulty (0.0-1.0, higher = more fixture influence, default: 0.0)')
     parser.add_argument('--last-season-weighting', type=float, default=0.0, metavar='WEIGHT',
                        help='Weight for last season performance (0.0-1.0, higher = more historical influence, default: 0.0)')
+    parser.add_argument('--bench-budget', type=float, default=None, metavar='BUDGET',
+                       help='Maximum budget for bench players in millions (e.g., 20.0 for £20M, default: no limit)')
+    parser.add_argument('--optimize-starting-xi', action='store_true',
+                       help='Optimize starting XI points only, ignore bench player points (default: optimize total squad)')
     
     args = parser.parse_args()
     
@@ -643,6 +829,10 @@ def main():
         if not (0.0 <= args.last_season_weighting <= 1.0):
             print("Error: last-season-weighting must be between 0.0 and 1.0")
             sys.exit(1)
+            
+        if args.bench_budget is not None and args.bench_budget < 0.0:
+            print("Error: bench-budget must be non-negative")
+            sys.exit(1)
         
         # Solve the optimization problem
         solution = selector.solve_team_selection(
@@ -651,7 +841,9 @@ def main():
             max_per_team_per_position=not args.no_max_one_per_team_position,
             exclude_injury_risk=not args.allow_injury_risk,
             fixture_weighting=args.fixture_weighting,
-            last_season_weighting=args.last_season_weighting
+            last_season_weighting=args.last_season_weighting,
+            bench_budget=args.bench_budget,
+            optimize_starting_xi=args.optimize_starting_xi
         )
         
         if solution:

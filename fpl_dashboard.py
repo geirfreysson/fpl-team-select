@@ -95,6 +95,32 @@ exclude_injury_risk = st.sidebar.checkbox(
     help="If checked, exclude players who are doubtful, injured, or have <75% chance of playing"
 )
 
+# Bench budget optimization controls
+st.sidebar.subheader("Bench Budget Optimization")
+
+optimize_starting_xi = st.sidebar.checkbox(
+    "Optimize Starting XI Only",
+    value=True,
+    help="If checked, optimize starting XI points only and ignore bench player points"
+)
+
+bench_budget_enabled = st.sidebar.checkbox(
+    "Set Bench Budget Limit",
+    value=False,
+    help="If checked, set a maximum budget for bench players"
+)
+
+bench_budget = None
+if bench_budget_enabled:
+    bench_budget = st.sidebar.slider(
+        "Bench Budget (£m)",
+        min_value=15.0,
+        max_value=30.0,
+        value=20.0,
+        step=0.5,
+        help="Maximum budget for bench players in millions"
+    )
+
 # Data directory (hardcoded)
 data_dir = "fpl_data"
 
@@ -121,7 +147,8 @@ if not SELECTOR_AVAILABLE:
 # Create a key from current parameters to detect changes
 current_params = (
     objective, fixture_weighting, last_season_weighting,
-    require_all_starts, max_per_team_per_position, exclude_injury_risk, data_dir
+    require_all_starts, max_per_team_per_position, exclude_injury_risk, data_dir,
+    optimize_starting_xi, bench_budget
 )
 
 # Initialize session state for parameters
@@ -148,7 +175,9 @@ if should_optimize:
                 max_per_team_per_position=max_per_team_per_position,
                 exclude_injury_risk=exclude_injury_risk,
                 fixture_weighting=fixture_weighting,
-                last_season_weighting=last_season_weighting
+                last_season_weighting=last_season_weighting,
+                bench_budget=bench_budget,
+                optimize_starting_xi=optimize_starting_xi
             )
         
         if solution:
@@ -184,42 +213,80 @@ if should_optimize:
             
             # Prepare display data ordered by position
             position_order = ['GKP', 'DEF', 'MID', 'FWD']
-            display_data = []
             
-            # Sort players by position order first
-            selected_players_df = pd.DataFrame(solution['selected_players'])
-            selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
-            selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
-            
-            for _, player in selected_players_df.iterrows():
-                # Get player picture URL
-                pic_url = player_pics.get(str(player['id']), "")
+            # Check if we should display separate tables for Starting XI and Bench
+            if solution.get('starting_xi_players'):
+                # Create separate datasets for Starting XI and Bench
+                starting_xi_ids = [p['id'] for p in solution['starting_xi_players']]
                 
-                row = {
-                    'Photo': pic_url,
-                    'Name': player['name'],
-                    'Position': player['position'],
-                    'Team': player['team_name'],
-                    'Price': f"£{player['price']:.1f}m",
-                    'Points': f"{player['proj_points']:.0f}",
-                    'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
-                }
+                # Starting XI players
+                starting_xi_data = []
+                bench_data = []
                 
-                # Add conditional columns based on weightings
-                # if solution.get('fixture_weighting', 0) > 0:
-                #     row['Fixture-Adj Points'] = f"{player['fixture_adjusted_points']:.1f}"
+                # Sort players by position order first
+                selected_players_df = pd.DataFrame(solution['selected_players'])
+                selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
+                selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
                 
-                if solution.get('last_season_weighting', 0) > 0:
-                    row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
-                    row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
-                    # row['History-Adj Points'] = f"{player['last_season_adjusted_points']:.1f}"
+                for _, player in selected_players_df.iterrows():
+                    # Get player picture URL
+                    pic_url = player_pics.get(str(player['id']), "")
+                    
+                    row = {
+                        'Photo': pic_url,
+                        'Name': player['name'],
+                        'Position': player['position'],
+                        'Team': player['team_name'],
+                        'Price': f"£{player['price']:.1f}m",
+                        'Points': f"{player['proj_points']:.0f}",
+                        'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
+                    }
+                    
+                    # Add conditional columns based on weightings
+                    if solution.get('last_season_weighting', 0) > 0:
+                        row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
+                        row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
+                    
+                    # Add fixtures as the last column
+                    row['Next 5 Fixtures'] = player['next_5_fixtures']
+                    
+                    # Separate into Starting XI vs Bench
+                    if player['id'] in starting_xi_ids:
+                        starting_xi_data.append(row)
+                    else:
+                        bench_data.append(row)
                 
-                # Add fixtures as the last column
-                row['Next 5 Fixtures'] = player['next_5_fixtures']
+                df_starting_xi = pd.DataFrame(starting_xi_data)
+                df_bench = pd.DataFrame(bench_data)
                 
-                display_data.append(row)
-            
-            df_display = pd.DataFrame(display_data)
+            else:
+                # Single table for all players (legacy behavior)
+                display_data = []
+                selected_players_df = pd.DataFrame(solution['selected_players'])
+                selected_players_df['position_order'] = selected_players_df['position'].map({pos: i for i, pos in enumerate(position_order)})
+                selected_players_df = selected_players_df.sort_values(['position_order', 'name'])
+                
+                for _, player in selected_players_df.iterrows():
+                    pic_url = player_pics.get(str(player['id']), "")
+                    
+                    row = {
+                        'Photo': pic_url,
+                        'Name': player['name'],
+                        'Position': player['position'],
+                        'Team': player['team_name'],
+                        'Price': f"£{player['price']:.1f}m",
+                        'Points': f"{player['proj_points']:.0f}",
+                        'Fixture Difficulty': f"{player['avg_fixture_difficulty_5']:.1f}"
+                    }
+                    
+                    if solution.get('last_season_weighting', 0) > 0:
+                        row['Current PPG'] = f"{player['current_points_per_gw']:.1f}"
+                        row['Last Season PPG'] = f"{player['last_season_points_per_gw']:.1f}"
+                    
+                    row['Next 5 Fixtures'] = player['next_5_fixtures']
+                    display_data.append(row)
+                
+                df_display = pd.DataFrame(display_data)
             
             # Style the dataframe
             def style_position(val):
@@ -231,6 +298,13 @@ if should_optimize:
                 }
                 return color_map.get(val, '')
             
+            def style_role(val):
+                role_map = {
+                    'Starting XI': 'background-color: #4caf50; color: white; font-weight: bold',
+                    'Bench': 'background-color: #ff9800; color: white; font-weight: bold'
+                }
+                return role_map.get(val, '')
+            
             # Configure column types, especially the Photo column as ImageColumn
             column_config = {
                 "Photo": st.column_config.ImageColumn(
@@ -240,15 +314,41 @@ if should_optimize:
                 )
             }
             
-            # Style the dataframe and show with image column
-            styled_df = df_display.style.applymap(style_position, subset=['Position'])
-            st.dataframe(
-                df_display, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config=column_config,
-                height=len(df_display) * 35 + 40
-            )
+            # Display dataframes
+            if solution.get('starting_xi_players'):
+                # Display Starting XI table
+                st.subheader("🟢 Starting XI")
+                if len(df_starting_xi) > 0:
+                    styled_starting_xi = df_starting_xi.style.applymap(style_position, subset=['Position'])
+                    st.dataframe(
+                        df_starting_xi,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=column_config,
+                        height=len(df_starting_xi) * 35 + 40
+                    )
+                
+                # Display Bench table
+                st.subheader("🟠 Bench")
+                if len(df_bench) > 0:
+                    styled_bench = df_bench.style.applymap(style_position, subset=['Position'])
+                    st.dataframe(
+                        df_bench,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=column_config,
+                        height=len(df_bench) * 35 + 40
+                    )
+            else:
+                # Single table display (legacy behavior)
+                styled_df = df_display.style.applymap(style_position, subset=['Position'])
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config=column_config,
+                    height=len(df_display) * 35 + 40
+                )
             
             # Team composition tables
             col1, col2 = st.columns(2)
@@ -275,6 +375,27 @@ if should_optimize:
                 st.subheader("Position Summary")
                 st.dataframe(pos_summary, use_container_width=True)
             
+            # Show starting XI and bench breakdown if applicable
+            if solution.get('starting_xi_stats'):
+                st.subheader("🏃 Starting XI vs Bench Breakdown")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.info(f"**Starting XI ({solution['starting_xi_stats']['formation']})**")
+                    st.metric("Starting XI Cost", f"£{solution['starting_xi_stats']['total_price']:.1f}m")
+                    st.metric("Starting XI Points", f"{solution['starting_xi_stats']['total_proj_points']}")
+                
+                with col2:
+                    st.info(f"**Bench ({solution['bench_stats']['count']} players)**")
+                    bench_cost = solution['bench_stats']['total_price']
+                    bench_budget_limit = solution.get('bench_budget')
+                    if bench_budget_limit:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m", f"£{bench_budget_limit - bench_cost:.1f}m under budget")
+                    else:
+                        st.metric("Bench Cost", f"£{bench_cost:.1f}m")
+                    st.metric("Bench Points", f"{solution['bench_stats']['total_proj_points']}")
+            
             # Validation results
             validation = selector.validate_solution(solution)
             
@@ -300,6 +421,21 @@ if should_optimize:
             with val_col5:
                 status = "✅" if validation['club_limits'] else "❌"
                 st.metric("Club Limits (≤3)", status)
+            
+            # Additional validations if applicable
+            if solution.get('starting_xi_stats') or solution.get('bench_budget') is not None:
+                val_col6, val_col7 = st.columns([1, 1])
+                
+                if solution.get('starting_xi_stats'):
+                    with val_col6:
+                        status = "✅" if validation.get('starting_xi_valid', True) else "❌"
+                        formation = solution.get('starting_xi_stats', {}).get('formation', 'N/A')
+                        st.metric(f"Starting XI ({formation})", status)
+                
+                if solution.get('bench_budget') is not None:
+                    with val_col7:
+                        status = "✅" if validation.get('bench_budget_valid', True) else "❌"
+                        st.metric("Bench Budget", status)
             
             # Export functionality
             st.subheader("📋 Export")
@@ -475,21 +611,31 @@ else:
         - Fixture Weighting: 0.0
         - Last Season Weighting: 0.0
         - All constraints enabled
+        - Optimize Starting XI: ON
         
         **Balanced Approach:**
         - Fixture Weighting: 0.3
         - Last Season Weighting: 0.4
         - Regular starters only
+        - Optimize Starting XI: ON
         
         **Historical Focus:**
         - Fixture Weighting: 0.1
         - Last Season Weighting: 0.7
         - Allow rotation players
+        - Optimize Starting XI: ON
         
         **Fixture-Heavy:**
         - Fixture Weighting: 0.8
         - Last Season Weighting: 0.2
         - Exclude injury risks
+        - Optimize Starting XI: ON
+        
+        **Budget-Conscious (Cheap Bench):**
+        - Fixture Weighting: 0.2
+        - Last Season Weighting: 0.3
+        - Optimize Starting XI: ON
+        - Bench Budget: £18.0m
         """)
 
 # Footer
