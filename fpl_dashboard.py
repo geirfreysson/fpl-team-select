@@ -50,9 +50,9 @@ st.sidebar.header("Optimization Parameters")
 # Objective selection
 objective = st.sidebar.selectbox(
     "Objective",
-    options=["max_points", "max_spend"],
+    options=["max_points", "max_spend", "max_form"],
     index=0,
-    help="max_points: Maximize projected points | max_spend: Maximize budget usage"
+    help="max_points: Maximize projected points | max_spend: Maximize budget usage | max_form: Maximize player form"
 )
 
 # Weighting sliders
@@ -63,6 +63,15 @@ fixture_weighting = st.sidebar.slider(
     value=0.0,
     step=0.1,
     help="Higher weight = more influence from fixture difficulty (0.0 = ignore fixtures)"
+)
+
+form_weighting = st.sidebar.slider(
+    "Form Weighting",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.0,
+    step=0.1,
+    help="Higher weight = more influence from recent player form (0.0 = ignore form)"
 )
 
 last_season_weighting = st.sidebar.slider(
@@ -146,7 +155,7 @@ if not SELECTOR_AVAILABLE:
 
 # Create a key from current parameters to detect changes
 current_params = (
-    objective, fixture_weighting, last_season_weighting,
+    objective, fixture_weighting, form_weighting, last_season_weighting,
     require_all_starts, max_per_team_per_position, exclude_injury_risk, data_dir,
     optimize_starting_xi, bench_budget
 )
